@@ -18,11 +18,17 @@
 #include<errno.h>
 #include<sys/ioctl.h>
 #include<termios.h>
+#include<signal.h>
+#include<unistd.h>
 
 #define INFORM	0
 #define REPORT	1
 #define FATAL	2
+#define MAX_DBG_BUFF_SIZE	256
 
-
+int		 	dbgLog(char type,char *fn,int line,char *str);
+void 		doProperClose(void);
+void 		sigHandler(int sig);
+int 		installSignalHdlr(void);
 
 #endif

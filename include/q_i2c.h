@@ -13,12 +13,9 @@
 #define I2C_CHA_2	"/dev/i2c-2"
 #define I2C_CHA_3	"/dev/i2c-3"
 
-#define MAX_DBG_BUFF_SIZE	256
 
 const unsigned int	openI2CBus(const char *devName,const int devAddr);
 
-int		 	dbgLog(char type,char *fn,int line,char *str);
-void 		doProperClose(void);
 int 		readFromI2CBus(const unsigned int fd,unsigned char *buffer,const unsigned int len);
 int 		writeToI2CBus(const unsigned int fd,const unsigned char *buffer,const unsigned int len);
 #endif
