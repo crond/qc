@@ -5,15 +5,110 @@
 
 unsigned char mainDbgBuffer[MAX_DBG_BUFF_SIZE];
 unsigned char dbgBuffer[MAX_DBG_BUFF_SIZE];
+unsigned char eamBuffer[MAX_EAM_BUFF_SIZE];
+unsigned char timeStr[32];
 
-extern unsigned int i2c_2fd;
+unsigned char G_eamConnectStatus=0; 
+
+
+extern  int i2cFd;
 extern unsigned int devAddr;
-extern unsigned int mcUartFd;
+extern  int mcUartFd;
+extern int sockWaitFd,eamSockFd;
+
+int startQc(void)
+{
+	static char fn[]="startQc()";
+	int ret=0,maxFd=0;
+	fd_set rd_msk;	
+	struct timeval tv;
+
+	while(1)
+	{
+		tv.tv_sec	=0;
+		tv.tv_usec	=10000;
+		
+		FD_ZERO(&rd_msk);
+		
+		FD_SET(i2cFd,&rd_msk);
+		if(i2cFd > maxFd)
+			maxFd = i2cFd;
+		
+		FD_SET(mcUartFd,&rd_msk);
+		if(mcUartFd> maxFd)
+			maxFd =mcUartFd;
+		
+		FD_SET(sockWaitFd,&rd_msk);
+		if(sockWaitFd> maxFd)
+			maxFd = sockWaitFd;
+		
+		if(G_eamConnectStatus == 1){
+			FD_SET(eamSockFd,&rd_msk);
+			if(eamSockFd> maxFd)
+				maxFd = eamSockFd;
+		}
+		else{
+			//Turn OFF the indication LEDs in QC Wings
+		}
+		maxFd = maxFd+1;
+		errno = 0;
+		ret = select(maxFd,&rd_msk,NULL,NULL,(struct timeval *)&tv);
+		if(ret > 0)
+		{
+			if(FD_ISSET(eamSockFd,&rd_msk))
+			{
+				//Read the EAM master Message
+				if((recvSockMsg(eamSockFd,eamBuffer,sizeof(eamBuffer))) < 0){	
+					dbgLog(REPORT,fn,__LINE__,"EAM Sock Read Failed. Closing connection");
+					close(eamSockFd);
+					G_eamConnectStatus	= 0;
+				}
+			}
+			if(FD_ISSET(i2cFd,&rd_msk))
+			{
+				//I2C Operations here
+			}
+			if(FD_ISSET(mcUartFd,&rd_msk))
+			{
+				//read the MC msg
+			}
+			if(FD_ISSET(sockWaitFd,&rd_msk))
+			{
+				//accept the incoming EAM connection
+				eamSockFd = acceptEAMConnection(sockWaitFd);
+			}
+		}
+		else
+		{
+			if(errno == EINTR){
+				continue;
+			}
+			else
+			{
+				snprintf(mainDbgBuffer,sizeof(mainDbgBuffer),"Select call failed. Err:%d %s",errno,strerror(errno));
+				dbgLog(FATAL,fn,__LINE__,mainDbgBuffer);
+				break;
+			}
+		}	
+	}
+	snprintf(mainDbgBuffer,sizeof(mainDbgBuffer),"Select call returnning. i2cfd:%d uartFd;%d sockFd:%d  eamfd:%d",i2cFd,mcUartFd,sockWaitFd,eamSockFd);
+	dbgLog(FATAL,fn,__LINE__,mainDbgBuffer);
+	
+	return 0;
+}
+
+
+
+
 
 int dbgLog(char type,char *fn,int line,char *str)
 {
+	time_t tmp_t;
 	bzero(dbgBuffer,sizeof(dbgBuffer));
-	snprintf(dbgBuffer,sizeof(dbgBuffer),"%s:%s:%d:%s\n",__FILE__,fn,line,str);
+	bzero(timeStr,sizeof(timeStr));
+	tmp_t=time(NULL);	
+	strftime(timeStr,sizeof(timeStr),"%D-%T",localtime(&tmp_t));
+	snprintf(dbgBuffer,sizeof(dbgBuffer),"%s:%s:%s:%d:%s\n",timeStr,__FILE__,fn,line,str);
 	printf("%s\n",dbgBuffer);
 	return 0;
 }
@@ -41,7 +136,7 @@ int installSignalHdlr(void)
 		dbgLog(REPORT,fn,__LINE__,mainDbgBuffer);
 		return -1;
 	}
-	
+#ifndef ARM_ARCH	
 	errno=0;
 	if( (signal(SIGKILL,sigHandler)) == SIG_ERR){
 		snprintf(mainDbgBuffer,sizeof(mainDbgBuffer),"SIGKILL Reg Failed. Err:%d %s",errno,strerror(errno));
@@ -49,6 +144,13 @@ int installSignalHdlr(void)
 		return -1;
 	}
 	
+	errno=0;
+	if( (signal(SIGSTOP,sigHandler)) == SIG_ERR){
+		snprintf(mainDbgBuffer,sizeof(mainDbgBuffer),"SIGSTOP Reg Failed. Err:%d %s",errno,strerror(errno));
+		dbgLog(REPORT,fn,__LINE__,mainDbgBuffer);
+		return -1;
+	}
+#endif	
 	errno=0;
 	if( (signal(SIGSEGV,sigHandler)) == SIG_ERR){
 		snprintf(mainDbgBuffer,sizeof(mainDbgBuffer),"SIGSEGV Reg Failed. Err:%d %s",errno,strerror(errno));
@@ -91,12 +193,6 @@ int installSignalHdlr(void)
 		return -1;
 	}
 	
-	errno=0;
-	if( (signal(SIGSTOP,sigHandler)) == SIG_ERR){
-		snprintf(mainDbgBuffer,sizeof(mainDbgBuffer),"SIGSTOP Reg Failed. Err:%d %s",errno,strerror(errno));
-		dbgLog(REPORT,fn,__LINE__,mainDbgBuffer);
-		return -1;
-	}
 	
 	errno=0;
 	if( (signal(SIGUSR1,sigHandler)) == SIG_ERR){
@@ -108,7 +204,18 @@ int installSignalHdlr(void)
 }
 void doProperClose(void)
 {
-	
+	static char fn[]="doProperClose()";
+
+	if(i2cFd != 0)
+		close(i2cFd);
+	if(mcUartFd != 0)
+		close(mcUartFd);
+	if(sockWaitFd != 0)
+		close(sockWaitFd);
+	if(eamSockFd != 0)
+		close(eamSockFd);
+	dbgLog(FATAL,fn,__LINE__,"Finished Proper Closing. Exitting..");
+	return;	
 }
 void sigHandler(int sig)
 {
@@ -116,7 +223,8 @@ void sigHandler(int sig)
 
     if( (sig ==4) ||(sig == 2) || (sig==9) || (sig==11) )
     {
-        _exit(1);
+        doProperClose();
+		_exit(1);
     }
     else if( sig == SIGUSR1)
     {
@@ -153,12 +261,17 @@ int init(void)
 		return -1;
 	}
 
-	if((i2c_2fd=openI2CBus(I2C_CHA_2,devAddr)) <= 0){
+	if((i2cFd=openI2CBus(I2C_CHA_2,devAddr)) <= 0){
 		dbgLog(FATAL,fn,__LINE__," I2C Init Failed.");
 		return -1;
 	}
 	if((mcUartFd=openSerPort(BB_MC_UART_NUM)) <= 0){
 		dbgLog(FATAL,fn,__LINE__,"Serial Port Init Failed");
+		return -1;
+	}
+	
+	if( (initSock(QC_LISTN_PORT)) < 0){
+		dbgLog(FATAL,fn,__LINE__,"Socket Init Failed");
 		return -1;
 	}
 	return 0;
@@ -167,6 +280,6 @@ int main(int argc,char *argv[])
 {
 	if((init()) < 0)
 		return 0;
-
+	startQc();	
 	return 0;
 }

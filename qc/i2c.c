@@ -5,7 +5,7 @@
 
 unsigned char i2cDbgBuffer[MAX_DBG_BUFF_SIZE];
 unsigned char i2cBuffer[16];
-unsigned int i2c_2fd	=0;
+int i2cFd	=0;
 unsigned int devAddr	=0b00101001;
 
 const unsigned int	openI2CBus(const char *devName,const int devAddr)

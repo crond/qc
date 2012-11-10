@@ -2,7 +2,7 @@
 #include "q_struct.h"
 #include "q_serial.h"
 
-unsigned int mcUartFd=0;
+int mcUartFd=0;
 static tcflag_t BAUD=B9600;
 unsigned char serDbgBuffer[MAX_DBG_BUFF_SIZE];
 
